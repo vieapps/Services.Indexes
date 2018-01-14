@@ -125,8 +125,14 @@ namespace net.vieapps.Services.Indexes
 
 				return exchangeRates;
 			}
-			catch (Exception)
+			catch (RemoteServerErrorException ex)
 			{
+				await this.WriteLogAsync(requestInfo.CorrelationID, $"Error occurred at remote server while fetching exchange rates: {ex.ResponseUri} - {ex.ResponseBody}", ex).ConfigureAwait(false);
+				throw ex;
+			}
+			catch (Exception ex)
+			{
+				await this.WriteLogAsync(requestInfo.CorrelationID, $"Error occurred while fetching exchange rates", ex).ConfigureAwait(false);
 				throw;
 			}
 		}
@@ -142,7 +148,7 @@ namespace net.vieapps.Services.Indexes
 			try
 			{
 				var json = new JObject();
-				var stockIndexes = JArray.Parse(await UtilityService.GetWebPageAsync("http://banggia.cafef.vn/stockhandler.ashx?index=true", null, UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false));
+				var stockIndexes = JArray.Parse(await UtilityService.GetWebPageAsync("http://banggia.cafef.vn/stockhandler.ashx?index=true", "http://cafef.vn/", UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false));
 				foreach (JObject stockIndex in stockIndexes)
 				{
 					var info = new JObject();
@@ -164,8 +170,14 @@ namespace net.vieapps.Services.Indexes
 
 				return json;
 			}
-			catch (Exception)
+			catch (RemoteServerErrorException ex)
 			{
+				await this.WriteLogAsync(requestInfo.CorrelationID, $"Error occurred at remote server while fetching stock indexes: {ex.ResponseUri} - {ex.ResponseBody}", ex).ConfigureAwait(false);
+				throw ex;
+			}
+			catch (Exception ex)
+			{
+				await this.WriteLogAsync(requestInfo.CorrelationID, $"Error occurred while fetching stock indexes", ex).ConfigureAwait(false);
 				throw;
 			}
 		}
@@ -188,7 +200,7 @@ namespace net.vieapps.Services.Indexes
 					chartsDate = chartsDate.AddDays(-2);
 				var chartsUrl = $"https://cafef4.vcmedia.vn/{chartsDate.ToString("yyyyMMdd")}/{code.UrlEncode()}/";
 
-				var stockQuotes = JArray.Parse(await UtilityService.GetWebPageAsync($"https://finance.vietstock.vn/AjaxData/TradingResult/GetStockData.ashx?scode={code.UrlEncode()}", null, UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false));
+				var stockQuotes = JArray.Parse(await UtilityService.GetWebPageAsync($"https://finance.vietstock.vn/AjaxData/TradingResult/GetStockData.ashx?scode={code.UrlEncode()}", "https://finance.vietstock.vn/", UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false));
 
 				var stockInfo = stockQuotes[0] as JObject;
 				var referencePrice = Convert.ToDouble(stockInfo["PriorClosePrice"]);
@@ -276,8 +288,14 @@ namespace net.vieapps.Services.Indexes
 
 				return json;
 			}
-			catch (Exception)
+			catch (RemoteServerErrorException ex)
 			{
+				await this.WriteLogAsync(requestInfo.CorrelationID, $"Error occurred at remote server fetching stock quotes: {ex.ResponseUri} - {ex.ResponseBody}", ex).ConfigureAwait(false);
+				throw ex;
+			}
+			catch (Exception ex)
+			{
+				await this.WriteLogAsync(requestInfo.CorrelationID, $"Error occurred while fetching stock quotes", ex).ConfigureAwait(false);
 				throw;
 			}
 		}
