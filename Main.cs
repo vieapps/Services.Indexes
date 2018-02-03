@@ -37,15 +37,6 @@ namespace net.vieapps.Services.Indexes
 			if (!requestInfo.Verb.Equals("GET"))
 				throw new MethodNotAllowedException(requestInfo.Verb);
 
-			// track
-			var stopwatch = new Stopwatch();
-			stopwatch.Start();
-			var logs = new List<string>() { $"Begin process ({requestInfo.Verb}): {requestInfo.URI}" };
-#if DEBUG || REQUESTLOGS
-			logs.Add($"Request:\r\n{requestInfo.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
-#endif
-			await this.WriteLogsAsync(requestInfo.CorrelationID, logs).ConfigureAwait(false);
-
 			// process
 			try
 			{
@@ -73,11 +64,6 @@ namespace net.vieapps.Services.Indexes
 			{
 				await this.WriteLogAsync(requestInfo.CorrelationID, "Error occurred while processing", ex).ConfigureAwait(false);
 				throw this.GetRuntimeException(requestInfo, ex);
-			}
-			finally
-			{
-				stopwatch.Stop();
-				await this.WriteLogAsync(requestInfo.CorrelationID, $"End process - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 		}
 
