@@ -26,7 +26,7 @@ namespace net.vieapps.Services.Indexes
 
 		public ServiceComponent() : base() { }
 
-		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null) => base.Start(args, false, nextAsync);
+		public override void Start(string[] args = null, bool initializeRepository = true, Func<ServiceBase, Task> nextAsync = null) => base.Start(args, false, nextAsync);
 
 		public override async Task<JObject> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
