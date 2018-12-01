@@ -24,7 +24,7 @@ namespace net.vieapps.Services.Indexes
 
 		public override string ServiceName => "Indexes";
 
-		public override void Start(string[] args = null, bool initializeRepository = true, Func<ServiceBase, Task> nextAsync = null) => base.Start(args, false, nextAsync);
+		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null) => base.Start(args, false, nextAsync);
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
@@ -52,7 +52,7 @@ namespace net.vieapps.Services.Indexes
 							: await this.ProcessStockQuoteAsync(requestInfo, cancellationToken);
 
 					default:
-						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.URI}]");
+						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 				}
 			}
 			catch (Exception ex)
