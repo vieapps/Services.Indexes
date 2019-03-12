@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Xml;
+using System.IO;
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -20,11 +21,18 @@ namespace net.vieapps.Services.Indexes
 {
 	public class ServiceComponent : ServiceBase
 	{
-		public static Cache Cache { get; } = new Cache("VIEApps-Services-Indexes", UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>(), false, UtilityService.GetAppSetting("Cache:Provider"), Components.Utility.Logger.GetLoggerFactory());
+		public static Cache Cache { get; internal set; }
 
 		public override string ServiceName => "Indexes";
 
-		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null) => base.Start(args, false, nextAsync);
+		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null)
+		{
+			// initialize caching storage
+			Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
+
+			// start the service
+			base.Start(args, false, nextAsync);
+		}
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
@@ -152,22 +160,31 @@ namespace net.vieapps.Services.Indexes
 				chartsDate = chartsDate.AddDays(-2);
 			var chartsUrl = $"https://cafef4.vcmedia.vn/{chartsDate.ToString("yyyyMMdd")}/{code.UrlEncode()}/";
 
-			var stockQuotes = JArray.Parse(await UtilityService.GetWebPageAsync($"https://finance.vietstock.vn/AjaxData/TradingResult/GetStockData.ashx?scode={code.UrlEncode()}", "https://finance.vietstock.vn/", UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false));
+			JObject stockInfo = null;
+			using (var stream = await UtilityService.GetWebResourceAsync("POST", $"https://finance.vietstock.vn/company/tradinginfo", null, $"code={code.UrlEncode()}&s=0&t=", "application /x-www-form-urlencoded; charset=utf-8", 90, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", null, null, true, System.Net.SecurityProtocolType.Ssl3, null, cancellationToken).ConfigureAwait(false))
+			{
+				using (var reader = new StreamReader(stream, true))
+				{
+					var results = await reader.ReadToEndAsync().WithCancellationToken(cancellationToken).ConfigureAwait(false);
+					if (this.IsDebugLogEnabled || this.IsDebugResultsEnabled)
+						await this.WriteLogsAsync(requestInfo.CorrelationID, $"{code.UrlEncode()} => {results}").ConfigureAwait(false);
+					stockInfo = JObject.Parse(results);
+				}
+			}
 
-			var stockInfo = stockQuotes[0] as JObject;
 			var referencePrice = Convert.ToDouble(stockInfo["PriorClosePrice"]);
-			var closePrice = (stockInfo["ClosePrice"] as JValue).Value == null ? 0 : Convert.ToDouble(stockInfo["ClosePrice"]);
+			var closePrice = Convert.ToDouble(stockInfo["LastPrice"]);
 			var openPrice = Convert.ToDouble(stockInfo["OpenPrice"]);
 			var averagePrice = Convert.ToDouble(stockInfo["AvrPrice"]);
 			var ceilingPrice = Convert.ToDouble(stockInfo["CeilingPrice"]);
 			var floorPrice = Convert.ToDouble(stockInfo["FloorPrice"]);
-			var highestPrice = Convert.ToDouble(stockInfo["Highest"]);
-			var lowestPrice = Convert.ToDouble(stockInfo["Lowest"]);
-			var yearHighestPrice = Convert.ToDouble(stockInfo["YearHigh"]);
-			var yearLowestPrice = Convert.ToDouble(stockInfo["YearLow"]);
-			var changeVolume = (stockInfo["Oscillate"] as JValue).Value == null ? 0 : Convert.ToDouble(stockInfo["Oscillate"]);
-			var changePercent = (stockInfo["PercentOscillate"] as JValue).Value == null ? "0%" : stockInfo["PercentOscillate"].ToString() + "%";
-			var changeMode = (stockInfo["ColorId"] as JValue).Value == null ? 0 : Convert.ToInt32(stockInfo["ColorId"]);
+			var highestPrice = Convert.ToDouble(stockInfo["HighestPrice"]);
+			var lowestPrice = Convert.ToDouble(stockInfo["LowestPrice"]);
+			var yearHighestPrice = Convert.ToDouble(stockInfo["Max52W"]);
+			var yearLowestPrice = Convert.ToDouble(stockInfo["Min52W"]);
+			var changeVolume = Convert.ToDouble(stockInfo["Change"]);
+			var changePercent = (stockInfo["PerChange"] as JValue).Value.ToString() + "%";
+			var changeMode = Convert.ToInt32(stockInfo["ColorId"]);
 			var changeType = "none";
 			var changeColor = "yellow";
 			if (changeMode > 0)
@@ -180,6 +197,17 @@ namespace net.vieapps.Services.Indexes
 				changeType = "down";
 				changeColor = "red";
 			}
+			var volume = Convert.ToInt32(stockInfo["TotalVol"]);
+			var capital = Convert.ToInt64(stockInfo["MarketCapital"]) / 1000000000;
+			var shares = Convert.ToInt32(stockInfo["KLCPNY"]);
+
+			var url = $"{this.GetHttpURI("HttpUri:APIs", "https://apis.vieapps.net")}/indexes/stock/{code}";
+			try
+			{
+				var companyInfo = await UtilityService.GetWebPageAsync($"https://finance.vietstock.vn/search/{code.UrlEncode()}", "https://finance.vietstock.vn/", UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false);
+				url = JObject.Parse(companyInfo)["data"].ToString().ToList('|').First(data => data.IsStartsWith("http://") || data.IsStartsWith("https://")).Replace("http://", "https://");
+			}
+			catch { }
 
 			var json = new JObject
 			{
@@ -187,13 +215,13 @@ namespace net.vieapps.Services.Indexes
 					{
 						{ "Code", code },
 						{ "Date", chartsDate },
-						{ "Volume", Convert.ToInt32(stockInfo["TradingVolume"]).ToString("###,###,###,##0", viCulture) + " tỷ đ" },
-						{ "Capital", Convert.ToInt32(stockInfo["CapitalLevel"]).ToString("###,###,###,##0", viCulture) + " tỷ đ" },
-						{ "Shares", Convert.ToInt32(stockInfo["KLCPNY"]).ToString("###,###,###,##0", viCulture) },
+						{ "Volume", volume.ToString("###,###,###,##0", viCulture) + " tỷ đ" },
+						{ "Capital", capital.ToString("###,###,###,##0", viCulture) + " tỷ đ" },
+						{ "Shares", shares.ToString("###,###,###,##0", viCulture) },
 						{ "Source", new JObject
 							{
 								{ "Label", "VietStock.vn" },
-								{ "Url", stockInfo["URL"].ToString() },
+								{ "Url", url },
 							}
 						},
 					}
@@ -234,7 +262,7 @@ namespace net.vieapps.Services.Indexes
 			};
 
 			await Task.WhenAll(
-				Cache.SetAsync($"StockQuote:{code}", json.ToString(Newtonsoft.Json.Formatting.None), 3),
+				Cache.SetAsync($"StockQuote:{code}", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 5 : 30),
 				this.SendUpdateMessageAsync(new UpdateMessage()
 				{
 					DeviceID = "*",
