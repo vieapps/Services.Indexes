@@ -152,16 +152,30 @@ namespace net.vieapps.Services.Indexes
 				return cached.ToJson();
 
 			JObject stockInfo = null;
-			using (var stream = await UtilityService.GetWebResourceAsync("POST", $"https://finance.vietstock.vn/company/tradinginfo", null, $"code={code.UrlEncode()}&s=0&t=", "application /x-www-form-urlencoded; charset=utf-8", 90, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", null, null, true, System.Net.SecurityProtocolType.Ssl3, null, cancellationToken).ConfigureAwait(false))
+			try
 			{
-				using (var reader = new StreamReader(stream, true))
+				using (var stream = await UtilityService.GetWebResourceAsync("POST", $"https://finance.vietstock.vn/company/tradinginfo", null, $"code={code}&s=0&t=", "application /x-www-form-urlencoded; charset=utf-8", 90, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", null, null, true, System.Net.SecurityProtocolType.Ssl3, null, cancellationToken).ConfigureAwait(false))
 				{
-					var results = await reader.ReadToEndAsync().WithCancellationToken(cancellationToken).ConfigureAwait(false);
-					if (this.IsDebugLogEnabled || this.IsDebugResultsEnabled)
-						await this.WriteLogsAsync(requestInfo.CorrelationID, $"{code.UrlEncode()} => {results}").ConfigureAwait(false);
-					stockInfo = results.ToJson() as JObject;
+					using (var reader = new StreamReader(stream, true))
+					{
+						var results = await reader.ReadToEndAsync().WithCancellationToken(cancellationToken).ConfigureAwait(false);
+						if (this.IsDebugLogEnabled || this.IsDebugResultsEnabled)
+							await this.WriteLogsAsync(requestInfo.CorrelationID, $"{code} => {results}").ConfigureAwait(false);
+						stockInfo = results?.ToJson() as JObject ?? throw new InformationNotFoundException($"Stock code ({code}) is not found");
+					}
 				}
 			}
+			catch (InformationNotFoundException)
+			{
+				throw;
+			}
+			catch (Exception ex)
+			{
+				throw new InformationNotFoundException($"Stock code ({code}) is not found", ex);
+			}
+
+			if (stockInfo == null || stockInfo["PriorClosePrice"] == null)
+				throw new InformationNotFoundException($"Stock code ({code}) is not found");
 
 			var referencePrice = stockInfo.Get<double>("PriorClosePrice");
 			var closePrice = stockInfo.Get<double>("LastPrice");
@@ -192,7 +206,7 @@ namespace net.vieapps.Services.Indexes
 			var capital = stockInfo.Get<double>("MarketCapital") / 1000000000;
 			var shares = stockInfo.Get<long>("KLCPNY");
 
-			var url = $"{this.GetHttpURI("HttpUri:APIs", "https://apis.vieapps.net")}/indexes/stock/{code}";
+			var url = $"{this.GetHttpURI("HttpUri:APIs", "https://apis.vieapps.net")}/indexes/stock/{code.UrlEncode()}";
 			var name = code;
 			try
 			{
