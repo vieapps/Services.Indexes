@@ -41,31 +41,44 @@ namespace net.vieapps.Services.Indexes
 				throw new MethodNotAllowedException(requestInfo.Verb);
 
 			// process
+			var stopwatch = Stopwatch.StartNew();
+			this.WriteLogs(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})");
 			try
 			{
+				JToken json = null;
 				switch (requestInfo.ObjectName.ToLower())
 				{
 					case "rates":
 					case "exchangerates":
 					case "exchange-rates":
-						return await this.ProcessExchangeRatesAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						json = await this.ProcessExchangeRatesAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
 
 					case "stock":
 					case "stockquote":
 					case "stockquotes":
 					case "stock-quote":
 					case "stock-quotes":
-						return string.IsNullOrWhiteSpace(requestInfo.GetObjectIdentity())
+						json = string.IsNullOrWhiteSpace(requestInfo.GetObjectIdentity())
 							? await this.ProcessStockIndexesAsync(requestInfo, cancellationToken).ConfigureAwait(false)
 							: await this.ProcessStockQuoteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
 
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 				}
+				stopwatch.Stop();
+				this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
+				if (this.IsDebugResultsEnabled)
+					this.WriteLogs(requestInfo,
+						$"- Request: {requestInfo.ToJson().ToString(this.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}" + "\r\n" +
+						$"- Response: {json?.ToString(this.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}"
+					);
+				return json;
 			}
 			catch (Exception ex)
 			{
-				throw this.GetRuntimeException(requestInfo, ex);
+				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
 			}
 		}
 
