@@ -168,11 +168,11 @@ namespace net.vieapps.Services.Indexes
 			JObject stockInfo = null;
 			try
 			{
-				using (var stream = await UtilityService.GetWebResourceAsync("POST", $"https://finance.vietstock.vn/company/tradinginfo", null, $"code={code}&s=0&t=", "application /x-www-form-urlencoded; charset=utf-8", 90, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", null, null, true, System.Net.SecurityProtocolType.Ssl3, null, cancellationToken).ConfigureAwait(false))
+				using (var stream = await UtilityService.GetWebResourceAsync("POST", $"https://finance.vietstock.vn/company/tradinginfo", null, null, $"code={code}&s=0&t=", "application /x-www-form-urlencoded; charset=utf-8", 90, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", null, null, cancellationToken).ConfigureAwait(false))
 				{
 					using (var reader = new StreamReader(stream, true))
 					{
-						var results = await reader.ReadToEndAsync().WithCancellationToken(cancellationToken).ConfigureAwait(false);
+						var results = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
 						if (this.IsDebugLogEnabled || this.IsDebugResultsEnabled)
 							await this.WriteLogsAsync(requestInfo.CorrelationID, $"{code} => {results}").ConfigureAwait(false);
 						stockInfo = results?.ToJson() as JObject ?? throw new InformationNotFoundException($"Stock code ({code}) is not found");
@@ -224,7 +224,7 @@ namespace net.vieapps.Services.Indexes
 			var name = code;
 			try
 			{
-				var companyInfo = await UtilityService.GetWebPageAsync($"https://finance.vietstock.vn/search/{code.UrlEncode()}", "https://finance.vietstock.vn/", UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false);
+				var companyInfo = await UtilityService.GetWebPageAsync("https://finance.vietstock.vn/search/" + code.UrlEncode(), "https://finance.vietstock.vn/", UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false);
 				var info = companyInfo.ToJson().Get<string>("data").ToList('|');
 				url = info.First(data => data.IsStartsWith("http://") || data.IsStartsWith("https://")).Replace("http://", "https://");
 				name = info[info.IndexOf(code) + 1];
@@ -234,7 +234,7 @@ namespace net.vieapps.Services.Indexes
 			var enCulture = CultureInfo.GetCultureInfo("en-US");
 			var viCulture = CultureInfo.GetCultureInfo("vi-VN");
 
-			var chartsUrl = $"https://chart.vietstock.vn/finance/{code.UrlEncode()}";
+			var chartsUrl = "https://chart.vietstock.vn/finance/" + code.UrlEncode();
 
 			var date = DateTime.Now.AddDays(-1);
 			if (DateTime.Now.DayOfWeek.Equals(DayOfWeek.Sunday))
