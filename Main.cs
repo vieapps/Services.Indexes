@@ -72,7 +72,7 @@ namespace net.vieapps.Services.Indexes
 					this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
 					if (this.IsDebugResultsEnabled)
 						this.WriteLogs(requestInfo,
-							$"- Request: {requestInfo.ToJson().ToString(this.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}" + "\r\n" +
+							$"- Request: {requestInfo.ToString(this.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}" + "\r\n" +
 							$"- Response: {json?.ToString(this.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}"
 						);
 					return json;
