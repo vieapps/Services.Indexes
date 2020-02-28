@@ -25,16 +25,16 @@ namespace net.vieapps.Services.Indexes
 
 		public override string ServiceName => "Indexes";
 
-		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null)
+		public override void Start(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
 		{
 			// initialize caching storage
 			Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
 
 			// start the service
-			base.Start(args, false, nextAsync);
+			base.Start(args, false, next);
 		}
 
-		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
+		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			// check
 			if (!requestInfo.Verb.Equals("GET"))
