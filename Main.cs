@@ -168,7 +168,7 @@ namespace net.vieapps.Services.Indexes
 			JObject stockInfo = null;
 			try
 			{
-				using (var stream = await UtilityService.GetWebResourceAsync("POST", $"https://finance.vietstock.vn/company/tradinginfo", null, null, $"code={code}&s=0&t=", "application /x-www-form-urlencoded; charset=utf-8", 90, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", null, null, cancellationToken).ConfigureAwait(false))
+				using (var stream = await UtilityService.GetWebResourceAsync("POST", $"https://finance.vietstock.vn/company/tradinginfo", null, null, $"code={code}&s=0&t=", "application/x-www-form-urlencoded; charset=utf-8", 90, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", null, null, cancellationToken).ConfigureAwait(false))
 				{
 					using (var reader = new StreamReader(stream, true))
 					{
