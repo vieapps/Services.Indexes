@@ -71,10 +71,7 @@ namespace net.vieapps.Services.Indexes
 					stopwatch.Stop();
 					this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
 					if (this.IsDebugResultsEnabled)
-						this.WriteLogs(requestInfo,
-							$"- Request: {requestInfo.ToString(this.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}" + "\r\n" +
-							$"- Response: {json?.ToString(this.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}"
-						);
+						this.WriteLogs(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}");
 					return json;
 				}
 				catch (Exception ex)
