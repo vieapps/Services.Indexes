@@ -27,10 +27,7 @@ namespace net.vieapps.Services.Indexes
 
 		public override void Start(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
 		{
-			// initialize caching storage
 			Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
-
-			// start the service
 			base.Start(args, false, next);
 		}
 
@@ -87,9 +84,8 @@ namespace net.vieapps.Services.Indexes
 			if (!string.IsNullOrWhiteSpace(cached))
 				return cached.ToJson();
 
-			var url = "https://www.vietcombank.com.vn/ExchangeRates/ExrateXML.aspx";
 			var xmlExchangeRates = new XmlDocument();
-			xmlExchangeRates.LoadXml(await UtilityService.GetWebPageAsync(url, null, UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false));
+			xmlExchangeRates.LoadXml(await UtilityService.GetWebPageAsync("https://portal.vietcombank.com.vn/Usercontrols/TVPortal.TyGia/pXML.aspx?b=1", null, UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false));
 			var xmlRates = xmlExchangeRates.DocumentElement.SelectNodes("//ExrateList/Exrate");
 
 			var exchangeRates = new JObject();
@@ -97,28 +93,20 @@ namespace net.vieapps.Services.Indexes
 			{
 				var code = xmlRate.Attributes["CurrencyCode"].Value.ToUpper();
 				var name = xmlRate.Attributes["CurrencyName"].Value.Replace(".", " ").ToLower().GetCapitalizedWords();
-				var buy = xmlRate.Attributes["Buy"].Value.CastAs<double>();
-				var sell = xmlRate.Attributes["Sell"].Value.CastAs<double>();
-				var transfer = xmlRate.Attributes["Transfer"].Value.CastAs<double>();
-				exchangeRates.Add(code, new JObject()
-					{
-						{ "Code", code },
-						{ "Name", name },
-						{ "Buy", buy },
-						{ "Sell", sell },
-						{ "Transfer", transfer },
-					});
+				var buy = xmlRate.Attributes["Buy"].Value.Equals("-") ? 0 : xmlRate.Attributes["Buy"].Value.CastAs<double>();
+				var sell = xmlRate.Attributes["Sell"].Value.Equals("-") ? 0 : xmlRate.Attributes["Sell"].Value.CastAs<double>();
+				var transfer = xmlRate.Attributes["Transfer"].Value.Equals("-") ? 0 : xmlRate.Attributes["Transfer"].Value.CastAs<double>();
+				exchangeRates.Add(code, new JObject
+				{
+					{ "Code", code },
+					{ "Name", name },
+					{ "Buy", buy },
+					{ "Sell", sell },
+					{ "Transfer", transfer },
+				});
 			}
 
-			await Task.WhenAll(
-				Cache.SetAsync("ExchangeRates", exchangeRates.ToString(Newtonsoft.Json.Formatting.None), 7),
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					DeviceID = "*",
-					Type = "Indexes#ExchangeRates",
-					Data = exchangeRates
-				}, cancellationToken)
-			).ConfigureAwait(false);
+			await Cache.SetAsync("ExchangeRates", exchangeRates.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 30).ConfigureAwait(false);
 
 			return exchangeRates;
 		}
@@ -142,16 +130,7 @@ namespace net.vieapps.Services.Indexes
 				json[stockIndex.Get<string>("name")] = info;
 			}
 
-			await Task.WhenAll(
-				Cache.SetAsync("StockIndexes", json.ToString(Newtonsoft.Json.Formatting.None), 3),
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					DeviceID = "*",
-					Type = "Indexes#StockIndexes",
-					Data = json
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
+			await Cache.SetAsync("StockIndexes", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 30).ConfigureAwait(false);
 			return json;
 		}
 
@@ -165,24 +144,14 @@ namespace net.vieapps.Services.Indexes
 			JObject stockInfo = null;
 			try
 			{
-				using (var stream = await UtilityService.GetWebResourceAsync("POST", $"https://finance.vietstock.vn/company/tradinginfo", null, null, $"code={code}&s=0&t=", "application/x-www-form-urlencoded; charset=utf-8", 90, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", null, null, cancellationToken).ConfigureAwait(false))
-				{
-					using (var reader = new StreamReader(stream, true))
-					{
-						var results = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-						if (this.IsDebugLogEnabled || this.IsDebugResultsEnabled)
-							await this.WriteLogsAsync(requestInfo.CorrelationID, $"{code} => {results}").ConfigureAwait(false);
-						stockInfo = results?.ToJson() as JObject ?? throw new InformationNotFoundException($"Stock code ({code}) is not found");
-					}
-				}
-			}
-			catch (InformationNotFoundException)
-			{
-				throw;
+				var results = await UtilityService.GetWebPageAsync("POST", $"https://finance.vietstock.vn/company/tradinginfo", null, null, $"code={code}&s=0&t=", "application/x-www-form-urlencoded; charset=utf-8", 90, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", null, null, cancellationToken).ConfigureAwait(false);
+				if (this.IsDebugLogEnabled || this.IsDebugResultsEnabled)
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"{code} => {results}").ConfigureAwait(false);
+				stockInfo = results?.ToJson() as JObject ?? throw new InformationNotFoundException($"Stock code ({code}) is not found");
 			}
 			catch (Exception ex)
 			{
-				throw new InformationNotFoundException($"Stock code ({code}) is not found", ex);
+				throw (ex is InformationNotFoundException ? ex : new InformationNotFoundException($"Stock code ({code}) is not found", ex));
 			}
 
 			if (stockInfo == null || stockInfo["PriorClosePrice"] == null)
@@ -217,7 +186,7 @@ namespace net.vieapps.Services.Indexes
 			var capital = stockInfo.Get<double>("MarketCapital") / 1000000000;
 			var shares = stockInfo.Get<long>("KLCPNY");
 
-			var url = $"{this.GetHttpURI("HttpUri:APIs", "https://apis.vieapps.net")}/indexes/stock/{code.UrlEncode()}";
+			var url = $"{this.GetHttpURI("APIs", "https://apis.vieapps.net")}/indexes/stock/{code.UrlEncode()}";
 			var name = code;
 			try
 			{
@@ -233,7 +202,7 @@ namespace net.vieapps.Services.Indexes
 
 			var chartsUrl = "https://chart.vietstock.vn/finance/" + code.UrlEncode();
 
-			var date = DateTime.Now.AddDays(-1);
+			var date = DateTime.Now;
 			if (DateTime.Now.DayOfWeek.Equals(DayOfWeek.Sunday))
 				date = date.AddDays(-1);
 			else if (DateTime.Now.DayOfWeek.Equals(DayOfWeek.Monday))
@@ -290,19 +259,10 @@ namespace net.vieapps.Services.Indexes
 						{ "SixMonths", $"{chartsUrl}6M.png?v={UtilityService.GetUUID(UtilityService.NewUUID)}" },
 						{ "OneYear", $"{chartsUrl}1Y.png?v={UtilityService.GetUUID(UtilityService.NewUUID)}" },
 					}
-				},
+				}
 			};
 
-			await Task.WhenAll(
-				Cache.SetAsync($"StockQuote:{code}", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 16 ? 5 : 30),
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					DeviceID = "*",
-					Type = "Indexes#StockQuote",
-					Data = json
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
+			await Cache.SetAsync($"StockQuote:{code}", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 30).ConfigureAwait(false);
 			return json;
 		}
 		#endregion
