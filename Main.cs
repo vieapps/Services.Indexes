@@ -115,7 +115,7 @@ namespace net.vieapps.Services.Indexes
 		#region Stock quotes
 		async Task<JToken> ProcessStockIndexesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var cached = await Cache.GetAsync<string>("StockIndexes").ConfigureAwait(false);
+			var cached = await Cache.GetAsync<string>("StockIndexes", cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(cached))
 				return cached.ToJson();
 
@@ -130,14 +130,14 @@ namespace net.vieapps.Services.Indexes
 				json[stockIndex.Get<string>("name")] = info;
 			}
 
-			await Cache.SetAsync("StockIndexes", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 30).ConfigureAwait(false);
+			await Cache.SetAsync("StockIndexes", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 60, cancellationToken).ConfigureAwait(false);
 			return json;
 		}
 
 		async Task<JToken> ProcessStockQuoteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var code = requestInfo.GetObjectIdentity().ToUpper();
-			var cached = await Cache.GetAsync<string>($"StockQuote:{code}").ConfigureAwait(false);
+			var cached = await Cache.GetAsync<string>($"StockQuote:{code}", cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(cached))
 				return cached.ToJson();
 
@@ -202,11 +202,11 @@ namespace net.vieapps.Services.Indexes
 
 			var chartsUrl = "https://chart.vietstock.vn/finance/" + code.UrlEncode();
 
-			var date = DateTime.Now;
-			if (DateTime.Now.DayOfWeek.Equals(DayOfWeek.Sunday))
-				date = date.AddDays(-1);
-			else if (DateTime.Now.DayOfWeek.Equals(DayOfWeek.Monday))
-				date = date.AddDays(-2);
+			var date = DateTime.Now.DayOfWeek.Equals(DayOfWeek.Saturday)
+				? DateTime.Now.AddDays(-1)
+				: DateTime.Now.DayOfWeek.Equals(DayOfWeek.Sunday)
+					? DateTime.Now.AddDays(-2)
+					: DateTime.Now;
 
 			var json = new JObject
 			{
@@ -262,7 +262,7 @@ namespace net.vieapps.Services.Indexes
 				}
 			};
 
-			await Cache.SetAsync($"StockQuote:{code}", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 30).ConfigureAwait(false);
+			await Cache.SetAsync($"StockQuote:{code}", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 60, cancellationToken).ConfigureAwait(false);
 			return json;
 		}
 		#endregion
