@@ -4,14 +4,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using System.Collections.Generic;
 using System.Globalization;
 using System.Xml;
-using System.IO;
-
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Caching;
@@ -40,7 +35,7 @@ namespace net.vieapps.Services.Indexes
 			// process
 			var stopwatch = Stopwatch.StartNew();
 			this.WriteLogs(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})");
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationTokenSource.Token))
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
 				try
 				{
 					JToken json = null;
@@ -80,7 +75,7 @@ namespace net.vieapps.Services.Indexes
 		#region Exchange rates
 		async Task<JToken> ProcessExchangeRatesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var cached = await Cache.GetAsync<string>("ExchangeRates").ConfigureAwait(false);
+			var cached = await Cache.GetAsync<string>("ExchangeRates", cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(cached))
 				return cached.ToJson();
 
@@ -106,7 +101,7 @@ namespace net.vieapps.Services.Indexes
 				});
 			}
 
-			await Cache.SetAsync("ExchangeRates", exchangeRates.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 30).ConfigureAwait(false);
+			await Cache.SetAsync("ExchangeRates", exchangeRates.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 30, cancellationToken).ConfigureAwait(false);
 
 			return exchangeRates;
 		}
