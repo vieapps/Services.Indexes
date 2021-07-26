@@ -34,7 +34,7 @@ namespace net.vieapps.Services.Indexes
 
 			// process
 			var stopwatch = Stopwatch.StartNew();
-			this.WriteLogs(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})");
+			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
 			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
 				try
 				{
@@ -61,9 +61,9 @@ namespace net.vieapps.Services.Indexes
 							throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 					}
 					stopwatch.Stop();
-					this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
+					await this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 					if (this.IsDebugResultsEnabled)
-						this.WriteLogs(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}");
+						await this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}").ConfigureAwait(false);
 					return json;
 				}
 				catch (Exception ex)
@@ -139,7 +139,7 @@ namespace net.vieapps.Services.Indexes
 			JObject stockInfo = null;
 			try
 			{
-				var results = await UtilityService.GetWebPageAsync("POST", $"https://finance.vietstock.vn/company/tradinginfo", null, null, $"code={code}&s=0&t=", "application/x-www-form-urlencoded; charset=utf-8", 90, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", null, null, cancellationToken).ConfigureAwait(false);
+				var results = await UtilityService.GetWebPageAsync("POST", $"https://finance.vietstock.vn/company/tradinginfo", null, $"code={code}&s=0&t=", "application/x-www-form-urlencoded; charset=utf-8", 90, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", null, null, cancellationToken).ConfigureAwait(false);
 				if (this.IsDebugLogEnabled || this.IsDebugResultsEnabled)
 					await this.WriteLogsAsync(requestInfo.CorrelationID, $"{code} => {results}").ConfigureAwait(false);
 				stockInfo = results?.ToJson() as JObject ?? throw new InformationNotFoundException($"Stock code ({code}) is not found");
