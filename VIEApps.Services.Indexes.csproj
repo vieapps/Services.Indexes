@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFrameworks>net5.0;netstandard2.0</TargetFrameworks>
 		<WarningLevel>3</WarningLevel>
-		<NoWarn>1573,1591</NoWarn>
+		<NoWarn>1573,1591,IDE0063</NoWarn>
 		<RootNamespace>net.vieapps.Services.Indexes</RootNamespace>
 		<AssemblyName>VIEApps.Services.Indexes</AssemblyName>
 		<AssemblyTitle>VIEApps NGX Indexes</AssemblyTitle>
@@ -24,7 +24,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="VIEApps.Services.Base" Version="10.4.2108.1" />
+		<PackageReference Include="VIEApps.Services.Base" Version="10.4.2108.3" />
 	</ItemGroup>
 
 </Project>

@@ -23,6 +23,7 @@ namespace net.vieapps.Services.Indexes
 		public override void Start(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
 		{
 			Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
+			this.Syncable = false;
 			base.Start(args, false, next);
 		}
 
@@ -80,7 +81,7 @@ namespace net.vieapps.Services.Indexes
 				return cached.ToJson();
 
 			var xmlExchangeRates = new XmlDocument();
-			xmlExchangeRates.LoadXml(await UtilityService.GetWebPageAsync("https://portal.vietcombank.com.vn/Usercontrols/TVPortal.TyGia/pXML.aspx?b=1", null, UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false));
+			xmlExchangeRates.LoadXml(await UtilityService.FetchHttpAsync("https://portal.vietcombank.com.vn/Usercontrols/TVPortal.TyGia/pXML.aspx?b=1", UtilityService.DesktopUserAgent, null, cancellationToken).ConfigureAwait(false));
 			var xmlRates = xmlExchangeRates.DocumentElement.SelectNodes("//ExrateList/Exrate");
 
 			var exchangeRates = new JObject();
@@ -115,7 +116,7 @@ namespace net.vieapps.Services.Indexes
 				return cached.ToJson();
 
 			var json = new JObject();
-			var stockIndexes = JArray.Parse(await UtilityService.GetWebPageAsync("http://banggia.cafef.vn/stockhandler.ashx?index=true", "http://cafef.vn/", UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false));
+			var stockIndexes = JArray.Parse(await UtilityService.FetchHttpAsync("http://banggia.cafef.vn/stockhandler.ashx?index=true", UtilityService.DesktopUserAgent, "http://cafef.vn/", cancellationToken).ConfigureAwait(false));
 			foreach (JObject stockIndex in stockIndexes)
 			{
 				var info = new JObject();
@@ -139,10 +140,16 @@ namespace net.vieapps.Services.Indexes
 			JObject stockInfo = null;
 			try
 			{
-				var results = await UtilityService.GetWebPageAsync("POST", $"https://finance.vietstock.vn/company/tradinginfo", null, $"code={code}&s=0&t=", "application/x-www-form-urlencoded; charset=utf-8", 90, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", null, null, cancellationToken).ConfigureAwait(false);
-				if (this.IsDebugLogEnabled || this.IsDebugResultsEnabled)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"{code} => {results}").ConfigureAwait(false);
-				stockInfo = results?.ToJson() as JObject ?? throw new InformationNotFoundException($"Stock code ({code}) is not found");
+				using (var webResponse = await UtilityService.SendHttpRequestAsync($"https://finance.vietstock.vn/company/tradinginfo", "POST", null, $"code={code}&s=0&t=", "application/x-www-form-urlencoded; charset=utf-8", UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", 90, null, null, cancellationToken).ConfigureAwait(false))
+				{
+					using (var stream = webResponse.GetResponseStream())
+					{
+						var results = await stream.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+						if (this.IsDebugLogEnabled || this.IsDebugResultsEnabled)
+							await this.WriteLogsAsync(requestInfo.CorrelationID, $"{code} => {results}").ConfigureAwait(false);
+						stockInfo = results?.ToJson() as JObject ?? throw new InformationNotFoundException($"Stock code ({code}) is not found");
+					}
+				}
 			}
 			catch (Exception ex)
 			{
@@ -185,7 +192,7 @@ namespace net.vieapps.Services.Indexes
 			var name = code;
 			try
 			{
-				var companyInfo = await UtilityService.GetWebPageAsync("https://finance.vietstock.vn/search/" + code.UrlEncode(), "https://finance.vietstock.vn/", UtilityService.DesktopUserAgent, cancellationToken).ConfigureAwait(false);
+				var companyInfo = await UtilityService.FetchHttpAsync("https://finance.vietstock.vn/search/" + code.UrlEncode(), null, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", 90, null, null, cancellationToken).ConfigureAwait(false);
 				var info = companyInfo.ToJson().Get<string>("data").ToList('|');
 				url = info.First(data => data.IsStartsWith("http://") || data.IsStartsWith("https://")).Replace("http://", "https://");
 				name = info[info.IndexOf(code) + 1];
