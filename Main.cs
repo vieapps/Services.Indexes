@@ -1,11 +1,12 @@
 ﻿#region Related components
 using System;
 using System.Linq;
+using System.Xml;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Globalization;
-using System.Xml;
+using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
@@ -137,23 +138,53 @@ namespace net.vieapps.Services.Indexes
 			if (!string.IsNullOrWhiteSpace(cached))
 				return cached.ToJson();
 
+			var headers = new Dictionary<string, string>
+			{
+				["User-Agent"] = UtilityService.DesktopUserAgent
+			};
+
 			JObject stockInfo = null;
 			try
 			{
-				using (var webResponse = await UtilityService.SendHttpRequestAsync($"https://finance.vietstock.vn/company/tradinginfo", "POST", null, $"code={code}&s=0&t=", "application/x-www-form-urlencoded; charset=utf-8", UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", 90, null, null, cancellationToken).ConfigureAwait(false))
+				using (var webResponse = await UtilityService.SendHttpRequestAsync($"https://finance.vietstock.vn/", "GET", headers, null, 90, cancellationToken).ConfigureAwait(false))
 				{
-					using (var stream = webResponse.GetResponseStream())
+					var cookies = webResponse.GetCookies();
+					var sessionID = cookies.FirstOrDefault(info => info.Item1 == "ASP.NET_SessionId")?.Item2;
+					var cookieTokenID = cookies.FirstOrDefault(info => info.Item1 == "__RequestVerificationToken")?.Item2;
+					var formTokenID = "";
+					using (var webStream = webResponse.GetResponseStream())
 					{
-						var results = await stream.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-						if (this.IsDebugLogEnabled || this.IsDebugResultsEnabled)
-							await this.WriteLogsAsync(requestInfo.CorrelationID, $"{code} => {results}").ConfigureAwait(false);
-						stockInfo = results?.ToJson() as JObject ?? throw new InformationNotFoundException($"Stock code ({code}) is not found");
+						var html = await webStream.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+						var start = html.IndexOf("<input name=__RequestVerificationToken");
+						var end = start > 0 ? html.IndexOf(">", start) : 0;
+						start = start > 0 ? html.IndexOf("value=", start) : 0;
+						if (start > 0 && end > 0)
+							formTokenID = html.Substring(start, end - start).ToArray("=").Last();
+					}
+					headers = new Dictionary<string, string>(headers)
+					{
+						["Referer"] = "https://finance.vietstock.vn/",
+						["Origin"] = "https://finance.vietstock.vn/",
+						["Cookie"] = $"finance_viewedstock={code};{(string.IsNullOrWhiteSpace(sessionID) ? "" : $"ASP.NET_SessionId={sessionID};")}{(string.IsNullOrWhiteSpace(cookieTokenID) ? "" : $"__RequestVerificationToken={cookieTokenID};")}",
+						["X-Requested-With"] = "XMLHttpRequest",
+						["Content-Type"] = "application/x-www-form-urlencoded; charset=utf-8"
+					};
+					var body = $"code={code}&s=0&t=&__RequestVerificationToken={formTokenID}";
+					using (var restResponse = await UtilityService.SendHttpRequestAsync($"https://finance.vietstock.vn/company/tradinginfo", "POST", headers, body, 90, cancellationToken).ConfigureAwait(false))
+					{
+						using (var restStream = restResponse.GetResponseStream())
+						{
+							var results = await restStream.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+							if (this.IsDebugLogEnabled || this.IsDebugResultsEnabled)
+								await this.WriteLogsAsync(requestInfo.CorrelationID, $"{code} => {results}").ConfigureAwait(false);
+							stockInfo = results?.ToJson() as JObject ?? throw new InformationNotFoundException($"Stock code ({code}) is not found");
+						}
 					}
 				}
 			}
 			catch (Exception ex)
 			{
-				throw (ex is InformationNotFoundException ? ex : new InformationNotFoundException($"Stock code ({code}) is not found", ex));
+				throw ex is InformationNotFoundException ? ex : new InformationNotFoundException($"Stock code ({code}) is not found", ex);
 			}
 
 			if (stockInfo == null || stockInfo["PriorClosePrice"] == null)
@@ -192,10 +223,17 @@ namespace net.vieapps.Services.Indexes
 			var name = code;
 			try
 			{
-				var companyInfo = await UtilityService.FetchHttpAsync("https://finance.vietstock.vn/search/" + code.UrlEncode(), null, UtilityService.DesktopUserAgent, "https://finance.vietstock.vn/", 90, null, null, cancellationToken).ConfigureAwait(false);
-				var info = companyInfo.ToJson().Get<string>("data").ToList('|');
-				url = info.First(data => data.IsStartsWith("http://") || data.IsStartsWith("https://")).Replace("http://", "https://");
-				name = info[info.IndexOf(code) + 1];
+				new[] { "X-Requested-With", "Content-Type" }.ForEach(header => headers.Remove(header));
+				using (var webResponse = await UtilityService.SendHttpRequestAsync("https://finance.vietstock.vn/search/" + code.UrlEncode(), "GET", headers, null, 90, cancellationToken).ConfigureAwait(false))
+				{
+					using (var webStream = webResponse.GetResponseStream())
+					{
+						var companyInfo = await webStream.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+						var info = companyInfo.ToJson().Get<string>("data").ToList('|');
+						url = info.First(data => data.IsStartsWith("http://") || data.IsStartsWith("https://")).Replace("http://", "https://");
+						name = info[info.IndexOf(code) + 1];
+					}
+				}
 			}
 			catch { }
 
@@ -254,12 +292,12 @@ namespace net.vieapps.Services.Indexes
 				},
 				{ "Charts", new JObject
 					{
-						{ "OneDay", $"{chartsUrl}1D.png?v={UtilityService.GetUUID(UtilityService.NewUUID)}" },
-						{ "OneWeek", $"{chartsUrl}1W.png?v={UtilityService.GetUUID(UtilityService.NewUUID)}" },
-						{ "OneMonth", $"{chartsUrl}1M.png?v={UtilityService.GetUUID(UtilityService.NewUUID)}" },
-						{ "ThreeMonths", $"{chartsUrl}3M.png?v={UtilityService.GetUUID(UtilityService.NewUUID)}" },
-						{ "SixMonths", $"{chartsUrl}6M.png?v={UtilityService.GetUUID(UtilityService.NewUUID)}" },
-						{ "OneYear", $"{chartsUrl}1Y.png?v={UtilityService.GetUUID(UtilityService.NewUUID)}" },
+						{ "OneDay", $"{chartsUrl}1D.png?v={UtilityService.GetRandomNumber()}" },
+						{ "OneWeek", $"{chartsUrl}1W.png?v={UtilityService.GetRandomNumber()}" },
+						{ "OneMonth", $"{chartsUrl}1M.png?v={UtilityService.GetRandomNumber()}" },
+						{ "ThreeMonths", $"{chartsUrl}3M.png?v={UtilityService.GetRandomNumber()}" },
+						{ "SixMonths", $"{chartsUrl}6M.png?v={UtilityService.GetRandomNumber()}" },
+						{ "OneYear", $"{chartsUrl}1Y.png?v={UtilityService.GetRandomNumber()}" },
 					}
 				}
 			};
