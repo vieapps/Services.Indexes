@@ -44,14 +44,20 @@ namespace net.vieapps.Services.Indexes
 					switch (requestInfo.ObjectName.ToLower())
 					{
 						case "rates":
+						case "exchange":
+						case "exchanges":
 						case "exchangerates":
+						case "exchange.rates":
 						case "exchange-rates":
 							json = await this.ProcessExchangeRatesAsync(requestInfo, cts.Token).ConfigureAwait(false);
 							break;
 
 						case "stock":
+						case "stocks":
 						case "stockquote":
 						case "stockquotes":
+						case "stock.quote":
+						case "stock.quotes":
 						case "stock-quote":
 						case "stock-quotes":
 							json = string.IsNullOrWhiteSpace(requestInfo.GetObjectIdentity())
