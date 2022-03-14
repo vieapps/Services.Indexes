@@ -49,7 +49,7 @@ namespace net.vieapps.Services.Indexes
 						case "exchangerates":
 						case "exchange.rates":
 						case "exchange-rates":
-							json = await this.ProcessExchangeRatesAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							json = await this.ProcessExchangeRatesAsync(cts.Token).ConfigureAwait(false);
 							break;
 
 						case "stock":
@@ -61,7 +61,7 @@ namespace net.vieapps.Services.Indexes
 						case "stock-quote":
 						case "stock-quotes":
 							json = string.IsNullOrWhiteSpace(requestInfo.GetObjectIdentity())
-								? await this.ProcessStockIndexesAsync(requestInfo, cts.Token).ConfigureAwait(false)
+								? await this.ProcessStockIndexesAsync(cts.Token).ConfigureAwait(false)
 								: await this.ProcessStockQuoteAsync(requestInfo, cts.Token).ConfigureAwait(false);
 							break;
 
@@ -81,7 +81,7 @@ namespace net.vieapps.Services.Indexes
 		}
 
 		#region Exchange rates
-		async Task<JToken> ProcessExchangeRatesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JToken> ProcessExchangeRatesAsync(CancellationToken cancellationToken)
 		{
 			var cached = await Cache.GetAsync<string>("ExchangeRates", cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(cached))
@@ -89,7 +89,7 @@ namespace net.vieapps.Services.Indexes
 
 			var exchangeRates = new JObject();
 			var xmlExchangeRates = new XmlDocument();
-			xmlExchangeRates.LoadXml(await UtilityService.FetchHttpAsync("https://portal.vietcombank.com.vn/Usercontrols/TVPortal.TyGia/pXML.aspx?b=1", cancellationToken).ConfigureAwait(false));
+			xmlExchangeRates.LoadXml(await new Uri("https://portal.vietcombank.com.vn/Usercontrols/TVPortal.TyGia/pXML.aspx?b=1").FetchHttpAsync(cancellationToken).ConfigureAwait(false));
 			xmlExchangeRates.DocumentElement.SelectNodes("//ExrateList/Exrate").ToList().ForEach(xmlRate =>
 			{
 				var code = xmlRate.Attributes["CurrencyCode"].Value.ToUpper();
@@ -114,7 +114,7 @@ namespace net.vieapps.Services.Indexes
 		#endregion
 
 		#region Stock quotes
-		async Task<JToken> ProcessStockIndexesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JToken> ProcessStockIndexesAsync(CancellationToken cancellationToken)
 		{
 			var cached = await Cache.GetAsync<string>("StockIndexes", cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(cached))
