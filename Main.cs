@@ -37,47 +37,47 @@ namespace net.vieapps.Services.Indexes
 			// process
 			var stopwatch = Stopwatch.StartNew();
 			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
-				try
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
+			try
+			{
+				JToken json = null;
+				switch (requestInfo.ObjectName.ToLower())
 				{
-					JToken json = null;
-					switch (requestInfo.ObjectName.ToLower())
-					{
-						case "rates":
-						case "exchange":
-						case "exchanges":
-						case "exchangerates":
-						case "exchange.rates":
-						case "exchange-rates":
-							json = await this.ProcessExchangeRatesAsync(cts.Token).ConfigureAwait(false);
-							break;
+					case "rates":
+					case "exchange":
+					case "exchanges":
+					case "exchangerates":
+					case "exchange.rates":
+					case "exchange-rates":
+						json = await this.ProcessExchangeRatesAsync(cts.Token).ConfigureAwait(false);
+						break;
 
-						case "stock":
-						case "stocks":
-						case "stockquote":
-						case "stockquotes":
-						case "stock.quote":
-						case "stock.quotes":
-						case "stock-quote":
-						case "stock-quotes":
-							json = string.IsNullOrWhiteSpace(requestInfo.GetObjectIdentity())
-								? await this.ProcessStockIndexesAsync(cts.Token).ConfigureAwait(false)
-								: await this.ProcessStockQuoteAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "stock":
+					case "stocks":
+					case "stockquote":
+					case "stockquotes":
+					case "stock.quote":
+					case "stock.quotes":
+					case "stock-quote":
+					case "stock-quotes":
+						json = string.IsNullOrWhiteSpace(requestInfo.GetObjectIdentity())
+							? await this.ProcessStockIndexesAsync(requestInfo, cts.Token).ConfigureAwait(false)
+							: await this.ProcessStockQuoteAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						default:
-							throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-					}
-					stopwatch.Stop();
-					await this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
-					if (this.IsDebugResultsEnabled)
-						await this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}").ConfigureAwait(false);
-					return json;
+					default:
+						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 				}
-				catch (Exception ex)
-				{
-					throw this.GetRuntimeException(requestInfo, ex, stopwatch);
-				}
+				stopwatch.Stop();
+				await this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+				if (this.IsDebugResultsEnabled)
+					await this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}").ConfigureAwait(false);
+				return json;
+			}
+			catch (Exception ex)
+			{
+				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
+			}
 		}
 
 		#region Exchange rates
@@ -114,7 +114,7 @@ namespace net.vieapps.Services.Indexes
 		#endregion
 
 		#region Stock quotes
-		async Task<JToken> ProcessStockIndexesAsync(CancellationToken cancellationToken)
+		async Task<JToken> ProcessStockIndexesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var cached = await Cache.GetAsync<string>("StockIndexes", cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(cached))
@@ -133,7 +133,11 @@ namespace net.vieapps.Services.Indexes
 					json[stockIndex.Get<string>("name")] = info;
 				});
 
-			await Cache.SetAsync("StockIndexes", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 60, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				this.IsDebugResultsEnabled ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Stock indexes => {json}") : Task.CompletedTask,
+				Cache.SetAsync("StockIndexes", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 60, cancellationToken)
+			).ConfigureAwait(false);
 			return json;
 		}
 
@@ -153,34 +157,31 @@ namespace net.vieapps.Services.Indexes
 
 			try
 			{
-				using (var htmlResponse = await new Uri("https://finance.vietstock.vn").SendHttpRequestAsync(headers, 90, cancellationToken).ConfigureAwait(false))
+				using var htmlResponse = await new Uri("https://finance.vietstock.vn").SendHttpRequestAsync(headers, 90, cancellationToken).ConfigureAwait(false);
+				var cookies = htmlResponse.GetCookies().ToList();
+				var languageID = cookies.FirstOrDefault(cookie => cookie.Name == "language")?.Value ?? "vi-VN";
+				var sessionID = cookies.FirstOrDefault(cookie => cookie.Name == "ASP.NET_SessionId")?.Value;
+				var cookieTokenID = cookies.FirstOrDefault(cookie => cookie.Name == "__RequestVerificationToken")?.Value;
+
+				var html = await htmlResponse.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+				var start = html.IndexOf("<input name=__RequestVerificationToken");
+				var end = start > 0 ? html.IndexOf(">", start) : 0;
+				start = start > 0 ? html.IndexOf("value=", start) : 0;
+				var formTokenID = start > 0 && end > 0 ? html.Substring(start, end - start).ToArray("=").Last() : "";
+
+				headers = new Dictionary<string, string>(headers)
 				{
-					var cookies = htmlResponse.Cookies.ToList();
-					var languageID = cookies.FirstOrDefault(cookie => cookie.Name == "language")?.Value ?? "vi-VN";
-					var sessionID = cookies.FirstOrDefault(cookie => cookie.Name == "ASP.NET_SessionId")?.Value;
-					var cookieTokenID = cookies.FirstOrDefault(cookie => cookie.Name == "__RequestVerificationToken")?.Value;
+					["Cookie"] = $"finance_viewedstock={stockCode},language={languageID}{(string.IsNullOrWhiteSpace(sessionID) ? "" : $",ASP.NET_SessionId={sessionID}")}{(string.IsNullOrWhiteSpace(cookieTokenID) ? "" : $",__RequestVerificationToken={cookieTokenID}")}",
+					["Content-Type"] = "application/x-www-form-urlencoded; charset=utf-8",
+					["X-Requested-With"] = "XMLHttpRequest"
+				};
+				var body = $"code={stockCode}&s=0&t=&__RequestVerificationToken={formTokenID}";
 
-					var html = await htmlResponse.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-					var start = html.IndexOf("<input name=__RequestVerificationToken");
-					var end = start > 0 ? html.IndexOf(">", start) : 0;
-					start = start > 0 ? html.IndexOf("value=", start) : 0;
-					var formTokenID = start > 0 && end > 0 ? html.Substring(start, end - start).ToArray("=").Last() : "";
-
-					headers = new Dictionary<string, string>(headers)
-					{
-						["Cookie"] = $"finance_viewedstock={stockCode},language={languageID}{(string.IsNullOrWhiteSpace(sessionID) ? "" : $",ASP.NET_SessionId={sessionID}")}{(string.IsNullOrWhiteSpace(cookieTokenID) ? "" : $",__RequestVerificationToken={cookieTokenID}")}",
-						["Content-Type"] = "application/x-www-form-urlencoded; charset=utf-8",
-						["X-Requested-With"] = "XMLHttpRequest"
-					};
-					var body = $"code={stockCode}&s=0&t=&__RequestVerificationToken={formTokenID}";
-					using (var jsonResponse = await new Uri("https://finance.vietstock.vn/company/tradinginfo").SendHttpRequestAsync("POST", headers, body, 90, cancellationToken).ConfigureAwait(false))
-					{
-						var results = await jsonResponse.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-						if (this.IsDebugLogEnabled || this.IsDebugResultsEnabled)
-							await this.WriteLogsAsync(requestInfo.CorrelationID, $"{stockCode} => {results}").ConfigureAwait(false);
-						stockInfo = results?.ToJson() as JObject ?? throw new InformationNotFoundException($"Stock code ({stockCode}) is not found");
-					}
-				}
+				using var jsonResponse = await new Uri("https://finance.vietstock.vn/company/tradinginfo").SendHttpRequestAsync("POST", headers, body, 90, cancellationToken).ConfigureAwait(false);
+				var results = await jsonResponse.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+				if (this.IsDebugResultsEnabled)
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"{stockCode} => {results}").ConfigureAwait(false);
+				stockInfo = results?.ToJson() as JObject ?? throw new InformationNotFoundException($"Stock code ({stockCode}) is not found");
 			}
 			catch (Exception ex)
 			{
