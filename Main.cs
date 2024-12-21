@@ -116,7 +116,10 @@ namespace net.vieapps.Services.Indexes
 		#region Stock quotes
 		async Task<JToken> ProcessStockIndexesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var cached = await Cache.GetAsync<string>("StockIndexes", cancellationToken).ConfigureAwait(false);
+			var cached = requestInfo.GetParameter("x-force-cache") != null
+				? null
+				: await Cache.GetAsync<string>("StockIndexes", cancellationToken).ConfigureAwait(false);
+
 			if (!string.IsNullOrWhiteSpace(cached))
 				return cached.ToJson();
 
@@ -144,7 +147,10 @@ namespace net.vieapps.Services.Indexes
 		async Task<JToken> ProcessStockQuoteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var stockCode = requestInfo.GetObjectIdentity().ToUpper();
-			var cached = await Cache.GetAsync<string>($"StockQuote:{stockCode}", cancellationToken).ConfigureAwait(false);
+			var cached = requestInfo.GetParameter("x-force-cache") != null
+				? null
+				: await Cache.GetAsync<string>($"StockQuote:{stockCode}", cancellationToken).ConfigureAwait(false);
+
 			if (!string.IsNullOrWhiteSpace(cached))
 				return cached.ToJson();
 
