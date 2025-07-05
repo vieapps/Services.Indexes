@@ -8,24 +8,44 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
-using net.vieapps.Components.Utility;
-using net.vieapps.Components.Security;
 using net.vieapps.Components.Caching;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 #endregion
 
 namespace net.vieapps.Services.Indexes
 {
 	public class ServiceComponent : ServiceBase
 	{
-		public static Cache Cache { get; internal set; }
+		static Cache Cache { get; set; }
+
+		static string ExternalURI { get; set; }
 
 		public override string ServiceName => "Indexes";
 
-		public override void Start(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
+		public override async Task StartAsync(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
 		{
+			// initialize
 			Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
+			ExternalURI = UtilityService.GetAppSetting("Indexes:External");
 			this.Syncable = false;
-			base.Start(args, false, next);
+			await base.StartAsync(args, false).ConfigureAwait(false);
+
+			// test external
+			if (!string.IsNullOrWhiteSpace(ExternalURI))
+				try
+				{
+					await new Uri($"{ExternalURI}/discovery/services").FetchHttpAsync(this.CancellationToken).ConfigureAwait(false);
+					this.Logger.LogInformation($"External APIs ({ExternalURI}) is working fine!");
+				}
+				catch (Exception ex)
+				{
+					this.Logger.LogError($"Error occurred while fetching external APIs ({ExternalURI}) => {ex.Message}", ex);
+					ExternalURI = null;
+				}
+
+			// next step
+			next?.Invoke(this);
 		}
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
@@ -49,7 +69,9 @@ namespace net.vieapps.Services.Indexes
 					case "exchangerates":
 					case "exchange.rates":
 					case "exchange-rates":
-						json = await this.ProcessExchangeRatesAsync(cts.Token).ConfigureAwait(false);
+						json = requestInfo.ContainsKey("x-use-external") && !string.IsNullOrWhiteSpace(ExternalURI)
+							? (await new Uri($"{ExternalURI}/indexes/exchangerates").FetchHttpAsync(cts.Token).ConfigureAwait(false)).ToJson()
+							: await this.ProcessExchangeRatesAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
 
 					case "stock":
@@ -60,9 +82,12 @@ namespace net.vieapps.Services.Indexes
 					case "stock.quotes":
 					case "stock-quote":
 					case "stock-quotes":
-						json = string.IsNullOrWhiteSpace(requestInfo.GetObjectIdentity())
-							? await this.ProcessStockIndexesAsync(requestInfo, cts.Token).ConfigureAwait(false)
-							: await this.ProcessStockQuoteAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						var code = requestInfo.GetObjectIdentity();
+						json = requestInfo.ContainsKey("x-use-external") && !string.IsNullOrWhiteSpace(ExternalURI)
+							? (await new Uri($"{ExternalURI}/indexes/stock{(string.IsNullOrWhiteSpace(code) ? "" : $"/{code}")}").FetchHttpAsync(cts.Token).ConfigureAwait(false)).ToJson()
+							: string.IsNullOrWhiteSpace(code)
+								? await this.ProcessStockIndexesAsync(requestInfo, cts.Token).ConfigureAwait(false)
+								: await this.ProcessStockQuoteAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
 
 					default:
@@ -81,9 +106,9 @@ namespace net.vieapps.Services.Indexes
 		}
 
 		#region Exchange rates
-		async Task<JToken> ProcessExchangeRatesAsync(CancellationToken cancellationToken)
+		async Task<JToken> ProcessExchangeRatesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var cached = await Cache.GetAsync<string>("ExchangeRates", cancellationToken).ConfigureAwait(false);
+			var cached = requestInfo.ContainsKey("x-force-cache") ? null : await Cache.GetAsync<string>("ExchangeRates", cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(cached))
 				return cached.ToJson();
 
@@ -93,7 +118,7 @@ namespace net.vieapps.Services.Indexes
 			xmlExchangeRates.DocumentElement.SelectNodes("//ExrateList/Exrate").ToList().ForEach(xmlRate =>
 			{
 				var code = xmlRate.Attributes["CurrencyCode"].Value.ToUpper();
-				var name = xmlRate.Attributes["CurrencyName"].Value.Replace(".", " ").ToLower().GetCapitalizedWords();
+				var name = xmlRate.Attributes["CurrencyName"].Value.Replace(".", " ").Trim().ToLower().GetCapitalizedWords();
 				var buy = xmlRate.Attributes["Buy"].Value.Equals("-") ? 0 : xmlRate.Attributes["Buy"].Value.CastAs<double>();
 				var sell = xmlRate.Attributes["Sell"].Value.Equals("-") ? 0 : xmlRate.Attributes["Sell"].Value.CastAs<double>();
 				var transfer = xmlRate.Attributes["Transfer"].Value.Equals("-") ? 0 : xmlRate.Attributes["Transfer"].Value.CastAs<double>();
@@ -108,7 +133,6 @@ namespace net.vieapps.Services.Indexes
 			});
 
 			await Cache.SetAsync("ExchangeRates", exchangeRates.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 30, cancellationToken).ConfigureAwait(false);
-
 			return exchangeRates;
 		}
 		#endregion
@@ -116,10 +140,7 @@ namespace net.vieapps.Services.Indexes
 		#region Stock quotes
 		async Task<JToken> ProcessStockIndexesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var cached = requestInfo.GetParameter("x-force-cache") != null
-				? null
-				: await Cache.GetAsync<string>("StockIndexes", cancellationToken).ConfigureAwait(false);
-
+			var cached = requestInfo.ContainsKey("x-force-cache") ? null : await Cache.GetAsync<string>("StockIndexes", cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(cached))
 				return cached.ToJson();
 
