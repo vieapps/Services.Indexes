@@ -27,7 +27,7 @@ namespace net.vieapps.Services.Indexes
 		{
 			// initialize
 			Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
-			ExternalURI = UtilityService.GetAppSetting("Indexes:External");
+			ExternalURI = this.GetHttpURI("External", "https://apis.vieapps.net");
 			this.Syncable = false;
 			await base.StartAsync(args, false).ConfigureAwait(false);
 
