@@ -17,31 +17,60 @@ namespace net.vieapps.Services.Indexes
 {
 	public class ServiceComponent : ServiceBase
 	{
-		static Cache Cache { get; set; }
-
-		static string ExternalURI { get; set; }
-
 		public override string ServiceName => "Indexes";
+
+		Cache Cache { get; } = Cache.CreateInstance("VIEApps-Services-Indexes", Components.Utility.Logger.GetLoggerFactory(), "true".IsEquals(UtilityService.GetAppSetting("Indexes:Cache:L1")));
+
+		string ExternalURI { get; set; }
+
+		IDisposable CacheCommunicator { get; set; }
+
+		public override Task RegisterServiceAsync(IEnumerable<string> args, Action<IService> onSuccess = null, Action<Exception> onError = null)
+			=> base.RegisterServiceAsync
+			(
+				args,
+				_ =>
+				{
+					this.CacheCommunicator?.Dispose();
+					this.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(this.Cache, this);
+					this.Cache.AssignSendL1CacheRequest(this);
+					onSuccess?.Invoke(this);
+				},
+				onError
+			);
+
+		public override Task UnregisterServiceAsync(IEnumerable<string> args, bool available = true, Action<IService> onSuccess = null, Action<Exception> onError = null)
+			=> base.UnregisterServiceAsync
+			(
+				args,
+				available,
+				_ =>
+				{
+					this.CacheCommunicator?.Dispose();
+					this.CacheCommunicator = null;
+					onSuccess?.Invoke(this);
+				},
+				onError
+			);
 
 		public override async Task StartAsync(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
 		{
 			// initialize
-			Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
-			ExternalURI = this.GetHttpURI("External", "https://apis.vieapps.net");
+			this.ExternalURI = this.GetHttpURI("External", "https://apis.vieapps.net");
 			this.Syncable = false;
 			await base.StartAsync(args, false).ConfigureAwait(false);
 
 			// test external
-			if (!string.IsNullOrWhiteSpace(ExternalURI))
+			if (!string.IsNullOrWhiteSpace(this.ExternalURI))
 				try
 				{
-					await new Uri($"{ExternalURI}/discovery/services").FetchHttpAsync(this.CancellationToken).ConfigureAwait(false);
-					this.Logger.LogInformation($"External APIs ({ExternalURI}) is working fine!");
+					await new Uri($"{this.ExternalURI}/discovery/services").FetchHttpAsync(this.CancellationToken).ConfigureAwait(false);
+					this.Logger.LogInformation($"External APIs ({this.ExternalURI}) is working fine!");
 				}
 				catch (Exception ex)
 				{
-					this.Logger.LogError($"Error occurred while fetching external APIs ({ExternalURI}) => {ex.Message}", ex);
-					ExternalURI = null;
+					this.Logger.LogError($"Error occurred while fetching external APIs ({this.ExternalURI}) => {ex.Message}", ex);
+					this.ExternalURI = null;
 				}
 
 			// next step
@@ -108,7 +137,7 @@ namespace net.vieapps.Services.Indexes
 		#region Exchange rates
 		async Task<JToken> ProcessExchangeRatesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var cached = requestInfo.ContainsKey("x-force-cache") ? null : await Cache.GetAsync<string>("ExchangeRates", cancellationToken).ConfigureAwait(false);
+			var cached = requestInfo.ContainsKey("x-force-cache") ? null : await this.Cache.GetAsync<string>("ExchangeRates", cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(cached))
 				return cached.ToJson();
 
@@ -132,7 +161,7 @@ namespace net.vieapps.Services.Indexes
 				});
 			});
 
-			await Cache.SetAsync("ExchangeRates", exchangeRates.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 30, cancellationToken).ConfigureAwait(false);
+			await this.Cache.SetAsync("ExchangeRates", exchangeRates.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 30, cancellationToken).ConfigureAwait(false);
 			return exchangeRates;
 		}
 		#endregion
@@ -140,7 +169,7 @@ namespace net.vieapps.Services.Indexes
 		#region Stock quotes
 		async Task<JToken> ProcessStockIndexesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var cached = requestInfo.ContainsKey("x-force-cache") ? null : await Cache.GetAsync<string>("StockIndexes", cancellationToken).ConfigureAwait(false);
+			var cached = requestInfo.ContainsKey("x-force-cache") ? null : await this.Cache.GetAsync<string>("StockIndexes", cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(cached))
 				return cached.ToJson();
 
@@ -160,7 +189,7 @@ namespace net.vieapps.Services.Indexes
 			await Task.WhenAll
 			(
 				this.IsDebugResultsEnabled ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Stock indexes => {json}") : Task.CompletedTask,
-				Cache.SetAsync("StockIndexes", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 60, cancellationToken)
+				this.Cache.SetAsync("StockIndexes", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 60, cancellationToken)
 			).ConfigureAwait(false);
 			return json;
 		}
@@ -170,7 +199,7 @@ namespace net.vieapps.Services.Indexes
 			var stockCode = requestInfo.GetObjectIdentity().ToUpper();
 			var cached = requestInfo.GetParameter("x-force-cache") != null
 				? null
-				: await Cache.GetAsync<string>($"StockQuote:{stockCode}", cancellationToken).ConfigureAwait(false);
+				: await this.Cache.GetAsync<string>($"StockQuote:{stockCode}", cancellationToken).ConfigureAwait(false);
 
 			if (!string.IsNullOrWhiteSpace(cached))
 				return cached.ToJson();
@@ -323,7 +352,7 @@ namespace net.vieapps.Services.Indexes
 				}
 			};
 
-			await Cache.SetAsync($"StockQuote:{stockCode}", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 60, cancellationToken).ConfigureAwait(false);
+			await this.Cache.SetAsync($"StockQuote:{stockCode}", json.ToString(Newtonsoft.Json.Formatting.None), DateTime.Now.Hour > 7 && DateTime.Now.Hour < 17 ? 7 : 60, cancellationToken).ConfigureAwait(false);
 			return json;
 		}
 		#endregion
