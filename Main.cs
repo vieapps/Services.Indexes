@@ -32,8 +32,10 @@ namespace net.vieapps.Services.Indexes
 				_ =>
 				{
 					this.CacheCommunicator?.Dispose();
-					this.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(this.Cache, this);
-					this.Cache.AssignSendL1CacheRequest(this);
+					this.CacheCommunicator = Router.GotBackupRouter()
+						? Router.BackupChannel.AssignProcessL1CacheRequest(this.Cache, this)
+						: Router.IncomingChannel.AssignProcessL1CacheRequest(this.Cache, this);
+					this.Cache.AssignSendL1CacheRequest(this, Router.GotBackupRouter());
 					onSuccess?.Invoke(this);
 				},
 				onError
