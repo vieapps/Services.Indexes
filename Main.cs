@@ -25,17 +25,22 @@ namespace net.vieapps.Services.Indexes
 
 		IDisposable CacheCommunicator { get; set; }
 
+		void RegisterCacheCommunicator()
+		{
+			this.CacheCommunicator?.Dispose();
+			this.CacheCommunicator = Router.GotBackupRouter()
+				? Router.BackupChannel.AssignProcessL1CacheRequest(this.Cache, this)
+				: Router.IncomingChannel.AssignProcessL1CacheRequest(this.Cache, this);
+			this.Cache.AssignSendL1CacheRequest(this, Router.GotBackupRouter());
+		}
+
 		public override Task RegisterServiceAsync(IEnumerable<string> args, Action<IService> onSuccess = null, Action<Exception> onError = null)
 			=> base.RegisterServiceAsync
 			(
 				args,
 				_ =>
 				{
-					this.CacheCommunicator?.Dispose();
-					this.CacheCommunicator = Router.GotBackupRouter()
-						? Router.BackupChannel.AssignProcessL1CacheRequest(this.Cache, this)
-						: Router.IncomingChannel.AssignProcessL1CacheRequest(this.Cache, this);
-					this.Cache.AssignSendL1CacheRequest(this, Router.GotBackupRouter());
+					this.RegisterCacheCommunicator();
 					onSuccess?.Invoke(this);
 				},
 				onError
@@ -60,7 +65,7 @@ namespace net.vieapps.Services.Indexes
 			// initialize
 			this.ExternalURI = this.GetHttpURI("External", "https://apis.vieapps.net");
 			this.Syncable = false;
-			await base.StartAsync(args, false).ConfigureAwait(false);
+			await this.StartAsync(args, (_, _) => this.RegisterCacheCommunicator(), false).ConfigureAwait(false);
 
 			// test external
 			if (!string.IsNullOrWhiteSpace(this.ExternalURI))
