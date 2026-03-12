@@ -1,16 +1,18 @@
 ﻿#region Related components
-using System;
-using System.Linq;
-using System.Xml;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Diagnostics;
-using System.Globalization;
-using System.Collections.Generic;
-using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Xml;
+using static Microsoft.ClearScript.V8.V8CpuProfile;
+
 #endregion
 
 namespace net.vieapps.Services.Indexes
@@ -234,7 +236,7 @@ namespace net.vieapps.Services.Indexes
 
 				headers = new Dictionary<string, string>(headers)
 				{
-					["Cookie"] = $"finance_viewedstock={stockCode},language={languageID}{(string.IsNullOrWhiteSpace(sessionID) ? "" : $",ASP.NET_SessionId={sessionID}")}{(string.IsNullOrWhiteSpace(cookieTokenID) ? "" : $",__RequestVerificationToken={cookieTokenID}")}",
+					["Cookie"] = $"finance_viewedstock={stockCode};finance_viewedstock_v2={stockCode};language={languageID}{(string.IsNullOrWhiteSpace(sessionID) ? "" : $";ASP.NET_SessionId={sessionID}")}{(string.IsNullOrWhiteSpace(cookieTokenID) ? "" : $";__RequestVerificationToken={cookieTokenID}")}",
 					["Content-Type"] = "application/x-www-form-urlencoded; charset=utf-8",
 					["X-Requested-With"] = "XMLHttpRequest"
 				};
