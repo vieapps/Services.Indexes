@@ -64,12 +64,8 @@ namespace net.vieapps.Services.Indexes
 
 		public override async Task StartAsync(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
 		{
-			// initialize
 			this.ExternalURI = this.GetHttpURI("External", "https://apis.vieapps.net");
 			this.Syncable = false;
-			await this.StartAsync(args, (_, _) => this.RegisterCacheCommunicator(), false).ConfigureAwait(false);
-
-			// test external
 			if (!string.IsNullOrWhiteSpace(this.ExternalURI))
 				try
 				{
@@ -81,9 +77,7 @@ namespace net.vieapps.Services.Indexes
 					this.Logger.LogError($"Error occurred while fetching external APIs ({this.ExternalURI}) => {ex.Message}", ex);
 					this.ExternalURI = null;
 				}
-
-			// next step
-			next?.Invoke(this);
+			await this.StartAsync(args, (_, _) => this.RegisterCacheCommunicator(), false, this.Cache, next).ConfigureAwait(false);
 		}
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
