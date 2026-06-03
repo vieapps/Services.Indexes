@@ -88,6 +88,7 @@ namespace net.vieapps.Services.Indexes
 
 			// process
 			var stopwatch = Stopwatch.StartNew();
+			this.Statistics.RpcEntered();
 			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
 			try
@@ -134,6 +135,10 @@ namespace net.vieapps.Services.Indexes
 			catch (Exception ex)
 			{
 				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
+			}
+			finally
+			{
+				this.Statistics.RpcCompleted(stopwatch);
 			}
 		}
 
